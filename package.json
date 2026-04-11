@@ -1,0 +1,25 @@
+{
+  "name": "tribevibe",
+  "version": "0.1.0",
+  "description": "Shared Claude Code memory and session context for teams",
+  "type": "module",
+  "bin": {
+    "tribevibe": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node --esm src/cli.ts",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "conf": "^13.0.1",
+    "gray-matter": "^4.0.3",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}
