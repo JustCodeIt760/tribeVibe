@@ -9,15 +9,9 @@ import type {
   WelcomePayload,
   LobbyUpdatePayload,
   LobbyParticipant,
+  SessionStartPayload,
+  PhaseChangePayload,
 } from '../shared/protocol.js';
-
-export interface ClientEvents {
-  'welcome': (hostName: string, myId: string) => void;
-  'lobby-update': (participants: LobbyParticipant[]) => void;
-  'session-start': (projectName: string) => void;
-  'disconnected': (reason: string) => void;
-  'message': (msg: TribeVibeMessage) => void;
-}
 
 export interface TribeVibeClientOptions {
   url: string;
@@ -25,10 +19,6 @@ export interface TribeVibeClientOptions {
   displayName: string;
 }
 
-/**
- * Convert an ngrok https:// URL to a wss:// URL.
- * ngrok HTTP tunnels accept WebSocket upgrades on the same URL.
- */
 function toWsUrl(url: string): string {
   return url.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
 }
@@ -39,6 +29,8 @@ export class TribeVibeClient extends EventEmitter {
   private displayName: string;
   private url: string;
   private _myId: string | null = null;
+  private _hostName: string = '';
+  private _gitUrl: string | null = null;
 
   constructor(opts: TribeVibeClientOptions) {
     super();
@@ -47,9 +39,9 @@ export class TribeVibeClient extends EventEmitter {
     this.url = toWsUrl(opts.url);
   }
 
-  get myId(): string | null {
-    return this._myId;
-  }
+  get myId(): string | null { return this._myId; }
+  get hostName(): string { return this._hostName; }
+  get gitUrl(): string | null { return this._gitUrl; }
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -61,8 +53,6 @@ export class TribeVibeClient extends EventEmitter {
 
       ws.on('open', () => {
         ws.removeListener('error', onOpenFail);
-
-        // Send hello
         const hello = makeMessage<HelloPayload>('hello', 'pending', 'host', {
           displayName: this.displayName,
         });
@@ -99,7 +89,9 @@ export class TribeVibeClient extends EventEmitter {
       case 'welcome': {
         const p = msg.payload as WelcomePayload;
         this._myId = p.participantId;
-        this.emit('welcome', p.hostName, p.participantId);
+        this._hostName = p.hostName;
+        this._gitUrl = p.gitUrl;
+        this.emit('welcome', p);
         break;
       }
       case 'lobby-update': {
@@ -108,8 +100,13 @@ export class TribeVibeClient extends EventEmitter {
         break;
       }
       case 'session-start': {
-        const p = msg.payload as { projectName: string };
-        this.emit('session-start', p.projectName);
+        const p = msg.payload as SessionStartPayload;
+        this.emit('session-start', p);
+        break;
+      }
+      case 'phase-change': {
+        const p = msg.payload as PhaseChangePayload;
+        this.emit('phase-change', p);
         break;
       }
       case 'goodbye': {
@@ -131,3 +128,5 @@ export class TribeVibeClient extends EventEmitter {
     if (this.ws) this.ws.close();
   }
 }
+
+export type { LobbyParticipant };

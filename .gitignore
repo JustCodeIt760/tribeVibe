@@ -2,3 +2,4 @@ node_modules/
 dist/
 .tribevibe-state.json
 .tribevibe.json
+.claude/

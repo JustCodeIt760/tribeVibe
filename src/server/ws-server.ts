@@ -8,40 +8,38 @@ import type {
   HelloPayload,
   WelcomePayload,
   LobbyUpdatePayload,
+  SessionStartPayload,
+  PhaseChangePayload,
+  SessionPhase,
 } from '../shared/protocol.js';
 import { HostSession } from './session.js';
-
-export interface ServerEvents {
-  'peer-joined': (id: string, name: string) => void;
-  'peer-left': (id: string) => void;
-  'lobby-changed': () => void;
-  'message': (msg: TribeVibeMessage) => void;
-}
 
 export interface TribeVibeServerOptions {
   port: number;
   seedHex: string;
   hostName: string;
+  /** Optional git-over-HTTP URL to share with peers in the welcome. */
+  gitUrl?: string | null;
 }
 
 /**
- * Host-side WebSocket server. Accepts encrypted peer connections and
- * maintains the lobby/session state.
- *
- * For v1 foundation: all peers share the same derived symmetric key (from the
- * invite-code seed). Later, per-peer keys will be derived via proper SPAKE2
- * after individual handshakes.
+ * Host-side WebSocket server. Accepts encrypted peer connections,
+ * maintains session state, and routes messages.
  */
 export class TribeVibeServer extends EventEmitter {
   private wss: WebSocketServer;
   private key: Buffer;
   readonly session: HostSession;
+  readonly seedHex: string;
   private peerSockets: Map<string, WebSocket> = new Map();
+  private gitUrl: string | null;
 
   constructor(opts: TribeVibeServerOptions) {
     super();
+    this.seedHex = opts.seedHex;
     this.key = deriveKey(opts.seedHex);
     this.session = new HostSession(opts.hostName);
+    this.gitUrl = opts.gitUrl ?? null;
     this.wss = new WebSocketServer({ port: opts.port });
     this.wss.on('connection', (ws) => this.handleConnection(ws));
   }
@@ -50,6 +48,10 @@ export class TribeVibeServer extends EventEmitter {
     const addr = this.wss.address();
     if (typeof addr === 'string' || !addr) throw new Error('No address');
     return addr.port;
+  }
+
+  setGitUrl(url: string | null): void {
+    this.gitUrl = url;
   }
 
   private handleConnection(ws: WebSocket): void {
@@ -61,7 +63,7 @@ export class TribeVibeServer extends EventEmitter {
       try {
         const plaintext = decrypt(raw, this.key);
         msg = JSON.parse(plaintext) as TribeVibeMessage;
-      } catch (err) {
+      } catch {
         ws.close(1008, 'Decryption failed');
         return;
       }
@@ -77,18 +79,23 @@ export class TribeVibeServer extends EventEmitter {
         participantId = p.id;
         this.peerSockets.set(p.id, ws);
 
-        // welcome
         this.sendRaw(
           ws,
           makeMessage<WelcomePayload>('welcome', 'host', p.id, {
             participantId: p.id,
             hostName: this.session.hostName,
+            gitUrl: this.gitUrl,
           })
         );
 
         this.broadcastLobby();
         this.emit('peer-joined', p.id, p.name);
         return;
+      }
+
+      // Re-stamp 'from' if it was 'pending' — now we know who they are
+      if (msg.from === 'pending' && participantId) {
+        msg.from = participantId;
       }
 
       this.emit('message', msg);
@@ -115,15 +122,20 @@ export class TribeVibeServer extends EventEmitter {
   private sendRaw(ws: WebSocket, msg: TribeVibeMessage): void {
     try {
       ws.send(encrypt(JSON.stringify(msg), this.key));
-    } catch {
-      /* socket may have closed */
-    }
+    } catch { /* socket may have closed */ }
   }
 
   broadcast(msg: TribeVibeMessage): void {
     for (const ws of this.peerSockets.values()) {
       this.sendRaw(ws, msg);
     }
+  }
+
+  sendTo(participantId: string, msg: TribeVibeMessage): boolean {
+    const ws = this.peerSockets.get(participantId);
+    if (!ws) return false;
+    this.sendRaw(ws, msg);
+    return true;
   }
 
   private broadcastLobby(): void {
@@ -136,11 +148,17 @@ export class TribeVibeServer extends EventEmitter {
     this.broadcastLobby();
   }
 
-  startSession(projectName: string): void {
+  startSession(projectName: string, brownfield: boolean): void {
     this.session.phase = 'planning';
-    this.broadcast(
-      makeMessage('session-start', 'host', 'all', { projectName })
-    );
+    const payload: SessionStartPayload = { projectName, brownfield };
+    this.broadcast(makeMessage('session-start', 'host', 'all', payload));
+    this.emitPhase('planning');
+  }
+
+  emitPhase(phase: SessionPhase, reason?: string): void {
+    this.session.phase = phase;
+    const payload: PhaseChangePayload = { phase, reason };
+    this.broadcast(makeMessage('phase-change', 'host', 'all', payload));
   }
 
   async close(): Promise<void> {

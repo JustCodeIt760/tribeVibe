@@ -73,7 +73,8 @@ program
   .option('-n, --name <name>', 'Your display name')
   .option('-p, --port <port>', 'Local WebSocket port', (v) => parseInt(v, 10))
   .option('--project <name>', 'Project name shown to peers')
-  .action(async (opts: { name?: string; port?: number; project?: string }) => {
+  .option('--brownfield', 'Treat current directory as an existing codebase')
+  .action(async (opts: { name?: string; port?: number; project?: string; brownfield?: boolean }) => {
     await hostCommand(opts);
   });
 
