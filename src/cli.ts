@@ -74,7 +74,8 @@ program
   .option('-p, --port <port>', 'Local WebSocket port', (v) => parseInt(v, 10))
   .option('--project <name>', 'Project name shown to peers')
   .option('--brownfield', 'Treat current directory as an existing codebase')
-  .action(async (opts: { name?: string; port?: number; project?: string; brownfield?: boolean }) => {
+  .option('--local', 'Skip ngrok and expose only on 127.0.0.1 (single-machine testing)')
+  .action(async (opts: { name?: string; port?: number; project?: string; brownfield?: boolean; local?: boolean }) => {
     await hostCommand(opts);
   });
 

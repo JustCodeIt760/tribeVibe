@@ -9,6 +9,7 @@ export interface HostOptions {
   name?: string;
   project?: string;
   brownfield?: boolean;
+  local?: boolean;
 }
 
 export async function hostCommand(opts: HostOptions): Promise<void> {
@@ -16,6 +17,7 @@ export async function hostCommand(opts: HostOptions): Promise<void> {
   const port = opts.port || 7420 + Math.floor(Math.random() * 100);
   const projectName = opts.project ?? path.basename(process.cwd());
   const brownfield = Boolean(opts.brownfield);
+  const local = Boolean(opts.local);
 
   render(
     React.createElement(HostApp, {
@@ -23,6 +25,7 @@ export async function hostCommand(opts: HostOptions): Promise<void> {
       localPort: port,
       projectName,
       brownfield,
+      local,
     })
   );
 }

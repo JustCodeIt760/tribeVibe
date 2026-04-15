@@ -55,6 +55,8 @@ export interface HostAppProps {
   localPort: number;
   projectName: string;
   brownfield: boolean;
+  /** If true, skip ngrok and expose the server on 127.0.0.1 (single-machine testing). */
+  local?: boolean;
 }
 
 export function HostApp({
@@ -62,6 +64,7 @@ export function HostApp({
   localPort,
   projectName,
   brownfield,
+  local = false,
 }: HostAppProps): React.ReactElement {
   const { exit } = useApp();
   const [phase, setPhase] = useState<BootPhase>('booting');
@@ -119,25 +122,29 @@ export function HostApp({
         });
         serverRef.current = srv;
 
-        setBootStatus('Opening ngrok tunnel for WebSocket (this takes a few seconds)...');
-        const tun = await startTunnel(localPort);
-        tunnelRef.current = tun;
+        let wsUrl: string;
+        let gitUrl: string | null = null;
+        if (local) {
+          wsUrl = `http://127.0.0.1:${localPort}`;
+          gitUrl = `http://127.0.0.1:${gitHttp.port}`;
+          srv.setGitUrl(gitUrl);
+        } else {
+          setBootStatus('Opening ngrok tunnel for WebSocket (this takes a few seconds)...');
+          const tun = await startTunnel(localPort);
+          tunnelRef.current = tun;
+          wsUrl = tun.url;
 
-        setBootStatus('Opening ngrok tunnel for git HTTP...');
-        try {
-          const gitTun = await startTunnel(gitHttp.port);
-          gitTunnelRef.current = gitTun;
-          srv.setGitUrl(gitTun.url);
-        } catch (err) {
-          // ngrok free tier may not allow a second tunnel; continue without git sharing
-          srv.setGitUrl(null);
-          console.warn(
-            'Git tunnel failed (ngrok may not allow multiple simultaneous tunnels):',
-            err instanceof Error ? err.message : err
-          );
+          setBootStatus('Opening ngrok tunnel for git HTTP...');
+          try {
+            const gitTun = await startTunnel(gitHttp.port);
+            gitTunnelRef.current = gitTun;
+            srv.setGitUrl(gitTun.url);
+          } catch (err) {
+            srv.setGitUrl(null);
+          }
         }
 
-        const code = encodeInviteCode({ url: tun.url, seed });
+        const code = encodeInviteCode({ url: wsUrl, seed });
         setInviteCode(code);
 
         srv.on('lobby-changed', () => {
