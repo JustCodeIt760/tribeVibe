@@ -117,11 +117,9 @@ ${ctx || '(no new events)'}
   }
 
   private async evaluateAndRespond(trigger: 'hard' | 'debounce' | 'explicit', explicitAsk?: string): Promise<void> {
-    if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-      this.emit('disabled', 'no ANTHROPIC_API_KEY; PM agent skipping response');
-      return;
-    }
-
+    // No preflight auth check — the SDK uses Claude Code's own auth chain,
+    // so if the user is logged into Claude Code this Just Works. If auth
+    // really fails, the SDK raises and we emit 'error'.
     const systemPrompt = this.buildSystemPrompt();
     const userPrompt = this.buildUserPrompt(trigger, explicitAsk);
 

@@ -45,12 +45,9 @@ export class PeerAgent extends EventEmitter {
   }
 
   async send(userText: string, participantId: string): Promise<void> {
-    if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-      // Graceful degradation: no creds available
-      this.emit('assistant-text', '[agent disabled: no ANTHROPIC_API_KEY]');
-      return;
-    }
-
+    // The SDK inherits Claude Code's auth chain: env vars (ANTHROPIC_API_KEY,
+    // CLAUDE_CODE_OAUTH_TOKEN) OR the user's existing Claude Code login in
+    // ~/.claude/. No preflight check — let the SDK raise if auth actually fails.
     this.running = true;
     try {
       const iter = claudeQuery({
