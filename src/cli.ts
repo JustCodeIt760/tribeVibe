@@ -6,6 +6,8 @@ import { pullCommand } from './commands/pull.js';
 import { syncCommand } from './commands/sync.js';
 import { statusCommand } from './commands/status.js';
 import { sessionStartCommand, sessionEndCommand } from './commands/session.js';
+import { hostCommand } from './commands/host.js';
+import { joinCommand } from './commands/join.js';
 
 const program = new Command();
 
@@ -63,6 +65,24 @@ session
   .description('End your active session and push notes to the shared repo')
   .action(async () => {
     await sessionEndCommand();
+  });
+
+program
+  .command('host')
+  .description('Host a live TribeVibe session (starts server + ngrok tunnel)')
+  .option('-n, --name <name>', 'Your display name')
+  .option('-p, --port <port>', 'Local WebSocket port', (v) => parseInt(v, 10))
+  .option('--project <name>', 'Project name shown to peers')
+  .action(async (opts: { name?: string; port?: number; project?: string }) => {
+    await hostCommand(opts);
+  });
+
+program
+  .command('join <invite-code>')
+  .description('Join a live TribeVibe session using an invite code')
+  .option('-n, --name <name>', 'Your display name')
+  .action(async (code: string, opts: { name?: string }) => {
+    await joinCommand(code, opts);
   });
 
 program.parseAsync(process.argv).catch((err: Error) => {
