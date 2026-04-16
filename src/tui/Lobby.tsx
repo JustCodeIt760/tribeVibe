@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
+import { useSafeInput } from './useSafeInput.js';
 import type { LobbyParticipant } from '../shared/protocol.js';
 
 export interface LobbyProps {
@@ -15,7 +16,7 @@ export interface LobbyProps {
 }
 
 export function Lobby(props: LobbyProps): React.ReactElement {
-  useInput((input, key) => {
+  useSafeInput((input, key) => {
     if (props.isHost && props.canStart && key.return && props.onStart) {
       props.onStart();
     }

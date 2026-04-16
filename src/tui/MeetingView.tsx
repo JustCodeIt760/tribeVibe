@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
+import { useSafeInput } from './useSafeInput.js';
 import type {
   MeetingItem,
   LobbyParticipant,
@@ -39,7 +40,7 @@ export function MeetingView(props: MeetingViewProps): React.ReactElement {
 
   const hasFloor = props.floorParticipantIds.includes(props.myParticipantId);
 
-  useInput((_ch, key) => {
+  useSafeInput((_ch, key) => {
     if (key.escape) props.onQuit();
     if (!hasFloor && _ch === 'b') setButtInMode(true);
     if (props.isHost && _ch === 'n' && props.onAdvance) props.onAdvance();

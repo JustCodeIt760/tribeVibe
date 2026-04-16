@@ -1,9 +1,5 @@
 import path from 'path';
-// @ts-ignore - node-git-server has commonjs types; pragmatic import
-import pkg from 'node-git-server';
-
-// node-git-server exports { Git } in v1. Handle both shapes defensively.
-const Server = (pkg as any).Server ?? (pkg as any).default ?? (pkg as any);
+import { Git } from 'node-git-server';
 
 export interface GitHttpHandle {
   port: number;
@@ -11,10 +7,11 @@ export interface GitHttpHandle {
 }
 
 /**
- * Start a smart HTTP git server that exposes a single bare repo.
+ * Start a smart HTTP git server that exposes the bare repo in <dir>/repo.git.
  *
- * We put the bare repo at <dir>/repo.git and tell node-git-server to serve
- * its parent as the repo root. The public path is /<sessionId>/repo.git.
+ * node-git-server's `Git` constructor takes a directory and serves any bare
+ * repo under it at paths like /repo.git/info/refs. We don't need auth here
+ * since the tunnel + our WS-layer encryption handle the security boundary.
  */
 export async function startGitHttpServer(
   bareRepoPath: string,
@@ -22,34 +19,34 @@ export async function startGitHttpServer(
 ): Promise<GitHttpHandle> {
   const repoDir = path.dirname(bareRepoPath);
 
-  // node-git-server's API varies by version; try the common constructor.
-  // We force authless, public access — encryption happens one layer up.
-  let repos: any;
-  try {
-    repos = new Server(repoDir, {
-      autoCreate: false,
-      authenticate: undefined,
-    });
-  } catch {
-    // Fallback for older versions that export a factory
-    repos = (pkg as any)(repoDir, { autoCreate: false });
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    repos.listen(port, (err?: Error) => {
-      if (err) reject(err);
-      else resolve();
-    });
+  const repos = new Git(repoDir, {
+    autoCreate: false,
   });
 
-  const actualPort = (repos.server?.address?.() as any)?.port ?? port;
+  await new Promise<void>((resolve, reject) => {
+    // Suppress non-fatal stderr from node-git-server for a clean TUI
+    const origLog = console.error;
+    try {
+      repos.listen(port, undefined, (err?: Error) => {
+        console.error = origLog;
+        if (err) reject(err);
+        else resolve();
+      });
+    } catch (e) {
+      console.error = origLog;
+      reject(e);
+    }
+  });
+
+  const addr = (repos as any).server?.address?.();
+  const actualPort = typeof addr === 'object' && addr ? addr.port : port;
 
   return {
     port: actualPort,
     close: () =>
       new Promise<void>((resolve) => {
         try {
-          repos.close();
+          (repos as any).close?.();
         } catch { /* noop */ }
         resolve();
       }),

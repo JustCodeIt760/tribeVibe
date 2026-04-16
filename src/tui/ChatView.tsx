@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
+import { useSafeInput } from './useSafeInput.js';
 import type { LobbyParticipant, SessionPhase } from '../shared/protocol.js';
 import { StatusBar } from './StatusBar.js';
 
@@ -37,7 +38,7 @@ export interface ChatViewProps {
 export function ChatView(props: ChatViewProps): React.ReactElement {
   const [input, setInput] = useState<string>('');
 
-  useInput((_ch, key) => {
+  useSafeInput((_ch, key) => {
     if (key.escape) props.onQuit();
   });
 
