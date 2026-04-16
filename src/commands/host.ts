@@ -3,6 +3,7 @@ import { render } from 'ink';
 import os from 'os';
 import path from 'path';
 import { HostApp } from '../tui/HostApp.js';
+import type { TunnelProvider } from '../server/tunnel.js';
 
 export interface HostOptions {
   port?: number;
@@ -10,6 +11,7 @@ export interface HostOptions {
   project?: string;
   brownfield?: boolean;
   local?: boolean;
+  tunnel?: string;
 }
 
 export async function hostCommand(opts: HostOptions): Promise<void> {
@@ -19,6 +21,13 @@ export async function hostCommand(opts: HostOptions): Promise<void> {
   const brownfield = Boolean(opts.brownfield);
   const local = Boolean(opts.local);
 
+  const raw = opts.tunnel ?? 'auto';
+  if (raw !== 'auto' && raw !== 'ngrok' && raw !== 'localtunnel') {
+    console.error(`Invalid --tunnel value "${raw}". Use: auto, ngrok, or localtunnel.`);
+    process.exit(1);
+  }
+  const tunnelProvider: TunnelProvider = raw;
+
   render(
     React.createElement(HostApp, {
       hostName,
@@ -26,6 +35,7 @@ export async function hostCommand(opts: HostOptions): Promise<void> {
       projectName,
       brownfield,
       local,
+      tunnelProvider,
     })
   );
 }

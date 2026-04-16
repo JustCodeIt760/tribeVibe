@@ -27,7 +27,7 @@ import type {
 } from '../shared/protocol.js';
 import { makeMessage } from '../shared/protocol.js';
 import { TribeVibeServer } from '../server/ws-server.js';
-import { startTunnel, type TunnelHandle } from '../server/tunnel.js';
+import { startTunnel, type TunnelHandle, type TunnelProvider } from '../server/tunnel.js';
 import { encodeInviteCode, inviteCodePrefix, newSeed } from '../crypto/invite-code.js';
 import { initBareRepo, seedInitialCommit, createRoleBranches } from '../git/bare-repo.js';
 import { startGitHttpServer, type GitHttpHandle } from '../git/http-server.js';
@@ -55,8 +55,10 @@ export interface HostAppProps {
   localPort: number;
   projectName: string;
   brownfield: boolean;
-  /** If true, skip ngrok and expose the server on 127.0.0.1 (single-machine testing). */
+  /** If true, skip tunnel and expose the server on 127.0.0.1 (single-machine testing). */
   local?: boolean;
+  /** Which tunnel provider to use ('auto' picks based on NGROK_AUTHTOKEN). */
+  tunnelProvider?: TunnelProvider;
 }
 
 export function HostApp({
@@ -65,6 +67,7 @@ export function HostApp({
   projectName,
   brownfield,
   local = false,
+  tunnelProvider = 'auto',
 }: HostAppProps): React.ReactElement {
   const { exit } = useApp();
   const [phase, setPhase] = useState<BootPhase>('booting');
@@ -123,23 +126,21 @@ export function HostApp({
         serverRef.current = srv;
 
         let wsUrl: string;
-        let gitUrl: string | null = null;
         if (local) {
           wsUrl = `http://127.0.0.1:${localPort}`;
-          gitUrl = `http://127.0.0.1:${gitHttp.port}`;
-          srv.setGitUrl(gitUrl);
+          srv.setGitUrl(`http://127.0.0.1:${gitHttp.port}`);
         } else {
-          setBootStatus('Opening ngrok tunnel for WebSocket (this takes a few seconds)...');
-          const tun = await startTunnel(localPort);
+          setBootStatus(`Opening ${tunnelProvider === 'auto' ? 'tunnel' : tunnelProvider} for WebSocket...`);
+          const tun = await startTunnel(localPort, tunnelProvider);
           tunnelRef.current = tun;
           wsUrl = tun.url;
 
-          setBootStatus('Opening ngrok tunnel for git HTTP...');
+          setBootStatus(`Opening ${tun.provider} tunnel for git HTTP...`);
           try {
-            const gitTun = await startTunnel(gitHttp.port);
+            const gitTun = await startTunnel(gitHttp.port, tun.provider);
             gitTunnelRef.current = gitTun;
             srv.setGitUrl(gitTun.url);
-          } catch (err) {
+          } catch {
             srv.setGitUrl(null);
           }
         }
@@ -600,7 +601,8 @@ export function HostApp({
       <Box flexDirection="column" padding={1}>
         <Text color="red">Error: {errorMsg}</Text>
         <Text dimColor>
-          Tip: set NGROK_AUTHTOKEN env var (free token at https://ngrok.com/).
+          Tips: try --tunnel localtunnel (no signup), --tunnel ngrok (needs
+          NGROK_AUTHTOKEN), or --local (same-machine testing only).
         </Text>
       </Box>
     );

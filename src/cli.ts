@@ -69,13 +69,14 @@ session
 
 program
   .command('host')
-  .description('Host a live TribeVibe session (starts server + ngrok tunnel)')
+  .description('Host a live TribeVibe session (starts server + public tunnel)')
   .option('-n, --name <name>', 'Your display name')
   .option('-p, --port <port>', 'Local WebSocket port', (v) => parseInt(v, 10))
   .option('--project <name>', 'Project name shown to peers')
   .option('--brownfield', 'Treat current directory as an existing codebase')
-  .option('--local', 'Skip ngrok and expose only on 127.0.0.1 (single-machine testing)')
-  .action(async (opts: { name?: string; port?: number; project?: string; brownfield?: boolean; local?: boolean }) => {
+  .option('--local', 'Skip tunnel and expose only on 127.0.0.1 (single-machine testing)')
+  .option('--tunnel <provider>', 'Tunnel provider: auto | ngrok | localtunnel', 'auto')
+  .action(async (opts: { name?: string; port?: number; project?: string; brownfield?: boolean; local?: boolean; tunnel?: string }) => {
     await hostCommand(opts);
   });
 
