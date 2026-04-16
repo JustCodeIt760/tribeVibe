@@ -35,6 +35,7 @@ import { decodeInviteCode } from '../crypto/invite-code.js';
 import { PeerAgent } from '../agent/spawn.js';
 import { peerAgentSystemPrompt } from '../agent/system-prompt.js';
 import { clonePeerWorkdir, autoCommitPush } from '../git/sync.js';
+import { ErrorBanner } from './ErrorBanner.js';
 
 type UIPhase =
   | 'connecting'
@@ -75,6 +76,8 @@ export function JoinApp({
   const [meetingReason, setMeetingReason] = useState<string>('');
   const [meetingTranscript, setMeetingTranscript] = useState<MeetingTranscriptLine[]>([]);
   const [lastPMUpdate, setLastPMUpdate] = useState<number | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const pushError = (m: string) => setErrors((prev) => [...prev, m]);
 
   const clientRef = useRef<TribeVibeClient | null>(null);
   const agentRef = useRef<PeerAgent | null>(null);
@@ -353,7 +356,9 @@ export function JoinApp({
           branchRef.current,
           `[${displayName}] ${text.slice(0, 60)}`
         );
-      } catch { /* no-op */ }
+      } catch (err) {
+        pushError(`auto-push failed: ${err instanceof Error ? err.message : err}`);
+      }
     })();
   }
 
@@ -381,8 +386,15 @@ export function JoinApp({
   }
 
   // ---------- Render ----------
+  const withErrors = (node: React.ReactElement): React.ReactElement => (
+    <Box flexDirection="column">
+      <ErrorBanner errors={errors} />
+      {node}
+    </Box>
+  );
+
   if (phase === 'connecting') {
-    return (
+    return withErrors(
       <Box padding={1}>
         <Text>
           <Text color="cyan">[tribevibe join]</Text> {status}
@@ -409,7 +421,7 @@ export function JoinApp({
   }
 
   if (phase === 'lobby') {
-    return (
+    return withErrors(
       <Lobby
         title={`TRIBEVIBE (joined ${hostName}'s session)`}
         participants={participants}
@@ -421,7 +433,7 @@ export function JoinApp({
   }
 
   if (phase === 'planning') {
-    return (
+    return withErrors(
       <ChatView
         phase="planning"
         myName={displayName}
@@ -438,7 +450,7 @@ export function JoinApp({
   }
 
   if (phase === 'working') {
-    return (
+    return withErrors(
       <WorkView
         phase="working"
         myName={displayName}
@@ -455,7 +467,7 @@ export function JoinApp({
   }
 
   if (phase === 'meeting') {
-    return (
+    return withErrors(
       <MeetingView
         phase="meeting"
         myName={displayName}

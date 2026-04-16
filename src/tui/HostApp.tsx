@@ -33,7 +33,8 @@ import { initBareRepo, seedInitialCommit, createRoleBranches } from '../git/bare
 import { startGitHttpServer, type GitHttpHandle } from '../git/http-server.js';
 import { PMCoordinator, type PMAction } from '../pm/coordinator.js';
 import { saveSession, type PersistedSession } from '../session/persistence.js';
-import { writeHandoffs } from '../session/handoff.js';
+import { writeHandoffs, writeHandoffMemories } from '../session/handoff.js';
+import { ErrorBanner } from './ErrorBanner.js';
 
 type BootPhase =
   | 'booting'
@@ -84,6 +85,9 @@ export function HostApp({
   const [meetingFloor, setMeetingFloor] = useState<string[]>([]);
   const [meetingTranscript, setMeetingTranscript] = useState<MeetingTranscriptLine[]>([]);
   const [lastPMUpdate, setLastPMUpdate] = useState<number | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+
+  const pushError = (msg: string) => setErrors((prev) => [...prev, msg]);
 
   // Refs so effects don't re-run on every state change
   const serverRef = useRef<TribeVibeServer | null>(null);
@@ -220,7 +224,10 @@ export function HostApp({
 
     pm.on('action', (action: PMAction) => handlePMAction(action));
     pm.on('disabled', (reason) => appendSystemMessage(`[PM disabled] ${reason}`));
-    pm.on('error', (err) => appendSystemMessage(`[PM error] ${err}`));
+    pm.on('error', (err) => {
+      appendSystemMessage(`[PM error] ${err}`);
+      pushError(`PM agent error: ${err}`);
+    });
 
     // Kick off planning phase with an opening prompt
     appendSystemMessage('Planning phase started. The PM will open soon.');
@@ -565,6 +572,18 @@ export function HostApp({
         tracker: pmRef.current.status,
         individualHandoffs: [],
       });
+
+      // Also write session summary + decisions as Claude Code memories so
+      // future Claude Code sessions in this project inherit what was learned.
+      // From there, `tribevibe push` can share them with teammates.
+      try {
+        const memFiles = writeHandoffMemories(persisted, pmRef.current.status, process.cwd());
+        if (memFiles.length > 0) {
+          appendSystemMessage(`Wrote ${memFiles.length} memory file(s) to ~/.claude/projects/ — run \`tribevibe push\` to share them.`);
+        }
+      } catch (err) {
+        appendSystemMessage(`Could not write memory files: ${err instanceof Error ? err.message : err}`);
+      }
     }
 
     setPhase('ended');
@@ -586,8 +605,15 @@ export function HostApp({
   }
 
   // ---------- Render ----------
+  const withErrors = (node: React.ReactElement): React.ReactElement => (
+    <Box flexDirection="column">
+      <ErrorBanner errors={errors} />
+      {node}
+    </Box>
+  );
+
   if (phase === 'booting') {
-    return (
+    return withErrors(
       <Box padding={1}>
         <Text>
           <Text color="cyan">[tribevibe host]</Text> {bootStatus}
@@ -610,7 +636,7 @@ export function HostApp({
 
   if (phase === 'lobby') {
     const peerCount = participants.filter((p) => !p.isHost).length;
-    return (
+    return withErrors(
       <Lobby
         title="TRIBEVIBE (host)"
         inviteCodeDisplay={inviteCodePrefix(inviteCode)}
@@ -630,7 +656,7 @@ export function HostApp({
   }
 
   if (phase === 'planning') {
-    return (
+    return withErrors(
       <ChatView
         phase="planning"
         myName={hostName}
@@ -651,7 +677,7 @@ export function HostApp({
   }
 
   if (phase === 'working') {
-    return (
+    return withErrors(
       <ChatView
         phase="working"
         myName={hostName}
@@ -669,7 +695,7 @@ export function HostApp({
   }
 
   if (phase === 'meeting') {
-    return (
+    return withErrors(
       <MeetingView
         phase="meeting"
         myName={hostName}

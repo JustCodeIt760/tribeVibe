@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { PersistedSession } from './persistence.js';
 import type { StatusTracker } from '../pm/status-tracker.js';
+import { claudeMemoryPath } from '../core/claude-memory.js';
 
 /**
  * Write per-role handoff doc + overall session summary into the working repo.
@@ -144,4 +145,32 @@ ${summaryContent}
   });
 
   return files;
+}
+
+/**
+ * Write the session's generated memory files directly into the host's
+ * Claude Code memory directory for the given project path.
+ *
+ * This closes the loop: decisions and handoffs from a live session become
+ * persistent project memories that Claude Code picks up in future sessions.
+ * From there, users can `tribevibe push` to share them with teammates via
+ * the async memory-sync subsystem.
+ *
+ * Returns the absolute paths of the files that were written.
+ */
+export function writeHandoffMemories(
+  session: PersistedSession,
+  tracker: StatusTracker,
+  projectPath: string
+): string[] {
+  const memDir = claudeMemoryPath(projectPath);
+  fs.mkdirSync(memDir, { recursive: true });
+
+  const written: string[] = [];
+  for (const f of handoffToMemoryFiles(session, tracker)) {
+    const abs = path.join(memDir, f.filename);
+    fs.writeFileSync(abs, f.content);
+    written.push(abs);
+  }
+  return written;
 }
