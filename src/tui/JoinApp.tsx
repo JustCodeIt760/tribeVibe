@@ -179,13 +179,29 @@ export function JoinApp({
         if (mine) {
           setMyRole(mine.role);
           setMyScope(mine.scope);
-          branchRef.current = `role/${mine.role.toLowerCase().replace(/\s+/g, '-')}`;
+          const newBranch = `role/${mine.role.toLowerCase().replace(/\s+/g, '-')}`;
+          const prevBranch = branchRef.current;
+          branchRef.current = newBranch;
           setLastPMUpdate(Date.now());
           appendChat({
             fromName: 'system',
             text: `Assigned role: ${mine.role} (scope: ${mine.scope.join(', ')})`,
             kind: 'system',
           });
+          // If workdir is already cloned (role-assignment arrived after
+          // scaffold-ready), switch to the correct branch.
+          if (workdirRef.current && prevBranch !== newBranch) {
+            void (async () => {
+              try {
+                const { simpleGit } = await import('simple-git');
+                const g = simpleGit(workdirRef.current);
+                await g.fetch('origin', newBranch).catch(() => {});
+                await g.checkout(newBranch);
+              } catch (err) {
+                pushError(`couldn't switch to branch ${newBranch}: ${err instanceof Error ? err.message : err}`);
+              }
+            })();
+          }
         }
         break;
       }

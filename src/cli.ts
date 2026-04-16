@@ -8,6 +8,7 @@ import { statusCommand } from './commands/status.js';
 import { sessionStartCommand, sessionEndCommand } from './commands/session.js';
 import { hostCommand } from './commands/host.js';
 import { joinCommand } from './commands/join.js';
+import { launchCommand } from './commands/launch.js';
 
 const program = new Command();
 
@@ -86,6 +87,12 @@ program
   .option('-n, --name <name>', 'Your display name')
   .action(async (code: string, opts: { name?: string }) => {
     await joinCommand(code, opts);
+  });
+
+// Default action: launch screen when run with no subcommand
+program
+  .action(async () => {
+    await launchCommand();
   });
 
 program.parseAsync(process.argv).catch((err: Error) => {

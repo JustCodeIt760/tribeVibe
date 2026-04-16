@@ -129,10 +129,13 @@ export function HostApp({
         });
         serverRef.current = srv;
 
+        // The bare repo sits at <sessionDir>/repo.git, so node-git-server
+        // serves it at the /repo.git path — include it in the published URL.
+        const gitPath = '/repo.git';
         let wsUrl: string;
         if (local) {
           wsUrl = `http://127.0.0.1:${localPort}`;
-          srv.setGitUrl(`http://127.0.0.1:${gitHttp.port}`);
+          srv.setGitUrl(`http://127.0.0.1:${gitHttp.port}${gitPath}`);
         } else {
           setBootStatus(`Opening ${tunnelProvider === 'auto' ? 'tunnel' : tunnelProvider} for WebSocket...`);
           const tun = await startTunnel(localPort, tunnelProvider);
@@ -143,7 +146,7 @@ export function HostApp({
           try {
             const gitTun = await startTunnel(gitHttp.port, tun.provider);
             gitTunnelRef.current = gitTun;
-            srv.setGitUrl(gitTun.url);
+            srv.setGitUrl(`${gitTun.url}${gitPath}`);
           } catch {
             srv.setGitUrl(null);
           }
@@ -417,13 +420,8 @@ export function HostApp({
     await seedInitialCommit(workRepoRef.current, files, hostName, `${hostName}@tribevibe`);
     await createRoleBranches(workRepoRef.current, roles);
 
-    const srpayload: ScaffoldReadyPayload = {
-      rootDir: projectName,
-      summary: 'Initial scaffold: src/{frontend,backend,database,testing}',
-      branches: ['main', ...roles.map((r) => `role/${r}`), 'shared/contracts'],
-    };
-    srv.broadcast(makeMessage('scaffold-ready', 'host', 'all', srpayload));
-
+    // Send role-assignment FIRST so peers set their branchRef before
+    // scaffold-ready triggers their git clone on the correct branch.
     const rapayload: RoleAssignmentPayload = {
       assignments: Object.entries(assignments).map(([pid, a]) => ({
         participantId: pid,
@@ -432,6 +430,13 @@ export function HostApp({
       })),
     };
     srv.broadcast(makeMessage('role-assignment', 'host', 'all', rapayload));
+
+    const srpayload: ScaffoldReadyPayload = {
+      rootDir: projectName,
+      summary: 'Initial scaffold: src/{frontend,backend,database,testing}',
+      branches: ['main', ...roles.map((r) => `role/${r}`), 'shared/contracts'],
+    };
+    srv.broadcast(makeMessage('scaffold-ready', 'host', 'all', srpayload));
 
     // Update PM with roles + scaffold
     pmRef.current?.updateParticipants(
