@@ -1,14 +1,50 @@
 # tribeVibe
 
-> Shared Claude Code memory and session context for teams.
+> Collaborative vibe coding for the age of AI.
 
-tribeVibe is a CLI tool that lets multiple developers working on the same project **sync their Claude Code memory and session notes** through a shared git repo. No central server, no accounts — just git.
+tribeVibe has two complementary modes:
 
-Think of it as `git` for your AI context.
+1. **Live collab mode** (`tribevibe host` / `tribevibe join`) — real-time terminal app where a host and up to 4 peers build software together. Each person works with their own Claude Code agent on an assigned role. A PM agent on the host's machine coordinates alignment across the group. All traffic E2E encrypted through a public tunnel. No accounts, no cloud, no signups.
+
+2. **Async memory-sync mode** (`tribevibe push` / `pull`) — use a shared git repo as a team backbone for Claude Code's memory files. Your agent learns something today → teammate's agent knows it tomorrow.
+
+The two modes integrate: a live session's handoffs become async memories at session end, so the team's accumulated knowledge compounds across sessions.
 
 ---
 
-## The problem
+## Quickstart (live collab, 2 min)
+
+```bash
+git clone https://github.com/JustCodeIt760/tribeVibe.git
+cd tribeVibe && npm install && npm run build && npm link
+```
+
+Then **either** just run `tribevibe` (interactive launcher pops up with Host / Join / Resume options) **or** go direct:
+
+```bash
+# Host (you)
+tribevibe host --name alice
+
+# Peer (teammate) — paste the invite code you send them
+tribevibe join 'VIBE-CORAL-7X.eyJ...' --name bob
+```
+
+No API key needed — the agents use your existing Claude Code login. No signup needed — localtunnel handles the public URL. One-machine testing? Add `--local` to skip the tunnel entirely.
+
+### Slash commands in chat
+
+| Command | Who | What |
+|---|---|---|
+| `/yes` `/no` `/abstain` | peers | vote on an active proposal |
+| `/pm <question>` | anyone | manually ask the PM to respond |
+| `/scaffold` | host | manually trigger scaffold generation (bypasses PM) |
+| `/start` | host | transition from planning → work phase |
+| `/ask <role> <request>` | peers (in work) | send a cross-role request |
+| `/quit` | anyone | leave the session |
+
+---
+
+## The problem (async memory-sync mode)
 
 Claude Code builds up valuable project knowledge over time — architectural decisions, gotchas, team conventions, bug fixes, rationale behind weird code. But all of that memory is **trapped on the laptop of whoever was driving the session**.
 

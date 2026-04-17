@@ -34,6 +34,8 @@ export interface ChatViewProps {
   onStartWork?: () => void;
   onScaffold?: () => void;         // host: skip PM, scaffold manually
   onPmPrompt?: (text: string) => void; // manually ask PM something
+  onCallMeeting?: (reason: string) => void; // host: trigger a meeting
+  onEndSession?: () => void;       // host: end the whole session
   onQuit: () => void;
 }
 
@@ -59,6 +61,8 @@ export function ChatView(props: ChatViewProps): React.ReactElement {
       if (cmd === 'start' && props.isHost && props.onStartWork) { props.onStartWork(); setInput(''); return; }
       if (cmd === 'scaffold' && props.isHost && props.onScaffold) { props.onScaffold(); setInput(''); return; }
       if (cmd === 'pm' && props.onPmPrompt) { props.onPmPrompt(rest || 'Please make a proposal or respond.'); setInput(''); return; }
+      if (cmd === 'meeting' && props.isHost && props.onCallMeeting) { props.onCallMeeting(rest || 'Sync meeting'); setInput(''); return; }
+      if (cmd === 'end' && props.isHost && props.onEndSession) { props.onEndSession(); setInput(''); return; }
       if (cmd === 'quit' || cmd === 'q') { props.onQuit(); return; }
     }
 
@@ -118,9 +122,11 @@ export function ChatView(props: ChatViewProps): React.ReactElement {
           onSubmit={handleSubmit}
           placeholder={
             props.isHost
-              ? props.canStartWork
-                ? '/start work · /pm <q> · type to chat'
-                : '/scaffold · /pm <q> · type to chat'
+              ? props.phase === 'working'
+                ? '/meeting <reason> · /end · /pm <q> · type to chat'
+                : props.canStartWork
+                  ? '/start work · /pm <q> · type to chat'
+                  : '/scaffold · /pm <q> · type to chat'
               : 'type to chat · /pm <q> · /quit to exit'
           }
         />

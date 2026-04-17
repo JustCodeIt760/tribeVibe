@@ -32,6 +32,7 @@ import { encodeInviteCode, inviteCodePrefix, newSeed } from '../crypto/invite-co
 import { initBareRepo, seedInitialCommit, createRoleBranches } from '../git/bare-repo.js';
 import { startGitHttpServer, type GitHttpHandle } from '../git/http-server.js';
 import { PMCoordinator, type PMAction } from '../pm/coordinator.js';
+import { exploreRepo, formatRepoOverview } from '../pm/explore-repo.js';
 import { saveSession, type PersistedSession } from '../session/persistence.js';
 import { writeHandoffs, writeHandoffMemories } from '../session/handoff.js';
 import { ErrorBanner } from './ErrorBanner.js';
@@ -234,11 +235,32 @@ export function HostApp({
 
     // Kick off planning phase with an opening prompt
     appendSystemMessage('Planning phase started. The PM will open soon.');
-    await pm.requestProposal(
-      brownfield
-        ? 'Open the planning phase. Briefly acknowledge the existing codebase and ask each participant what they want to work on. Keep it short.'
-        : 'Open the planning phase. Greet the team, ask "What would you like to build today?" and explain each person gets a turn to share their vision.'
-    );
+
+    if (brownfield) {
+      // Scan the host's cwd (the existing project) and surface a summary
+      // into chat + the PM's prompt. Deterministic — no LLM needed for the
+      // scan itself.
+      try {
+        const overview = exploreRepo(process.cwd());
+        const summary = formatRepoOverview(overview);
+        appendChat({
+          fromName: 'system',
+          text: `Brownfield scan of ${process.cwd()}:\n${summary}`,
+          kind: 'system',
+        });
+        pm.updateScaffold(summary);
+        await pm.requestProposal(
+          `Brownfield project — the team is joining an existing codebase. Here's what I scanned:\n\n${summary}\n\nOpen the planning phase: briefly summarize the stack and structure, then ask each participant what they want to work on next (e.g., features, refactors, bugs).`
+        );
+      } catch (err) {
+        appendSystemMessage(`Brownfield scan failed: ${err instanceof Error ? err.message : err}`);
+        await pm.requestProposal('Open the planning phase. Acknowledge the existing codebase and ask each participant what they want to work on.');
+      }
+    } else {
+      await pm.requestProposal(
+        'Open the planning phase. Greet the team, ask "What would you like to build today?" and explain each person gets a turn to share their vision.'
+      );
+    }
   }
 
   // ---------- PM action handler ----------
@@ -511,17 +533,53 @@ export function HostApp({
     const srv = serverRef.current;
     if (!srv) return;
 
-    const items: MeetingItem[] = [
-      {
-        id: crypto.randomUUID(),
-        title: reason,
-        context: 'Sync sub-item proposed by PM.',
-        relevantParticipantIds: srv.session
-          .toLobbyList()
-          .filter((p) => relevantNames.includes(p.name))
-          .map((p) => p.id),
-      },
-    ];
+    const items: MeetingItem[] = [];
+
+    // Auto-generate items from StatusTracker:
+    // 1. Each file overlap between roles becomes a discussion item.
+    if (pmRef.current) {
+      const overlaps = pmRef.current.status.detectFileOverlaps();
+      for (const o of overlaps) {
+        items.push({
+          id: crypto.randomUUID(),
+          title: `File overlap: ${o.file}`,
+          context: `${o.participantIds.length} roles are both touching ${o.file}. Decide who owns it.`,
+          relevantParticipantIds: o.participantIds,
+        });
+      }
+
+      // 2. Recent agent updates (last 5) as context items the team may
+      //    want to discuss.
+      const roleStatuses = pmRef.current.status.listRoles();
+      const recentUpdates = roleStatuses
+        .filter((r) => r.updates.length > 0)
+        .map((r) => ({ role: r, last: r.updates[r.updates.length - 1]! }))
+        .sort((a, b) => (b.role.lastUpdate ?? 0) - (a.role.lastUpdate ?? 0))
+        .slice(0, 3);
+      for (const { role, last } of recentUpdates) {
+        items.push({
+          id: crypto.randomUUID(),
+          title: `${role.name} (${role.role}): ${last.summary}`,
+          context: last.changes.slice(0, 200),
+          relevantParticipantIds: [role.participantId],
+        });
+      }
+    }
+
+    // 3. Fallback item: always include the reason as a discussion item
+    //    (even if there's no drift data to seed from).
+    const relevantIds = srv.session
+      .toLobbyList()
+      .filter((p) => relevantNames.includes(p.name))
+      .map((p) => p.id);
+    items.push({
+      id: crypto.randomUUID(),
+      title: reason,
+      context: 'Meeting reason supplied by host/PM.',
+      relevantParticipantIds: relevantIds.length > 0
+        ? relevantIds
+        : srv.session.toLobbyList().filter((p) => !p.isHost).map((p) => p.id),
+    });
 
     setMeetingItems(items);
     setMeetingIdx(0);
@@ -741,6 +799,14 @@ export function HostApp({
         onPmPrompt={(text) => {
           appendChat({ fromName: hostName, text: `/pm ${text}`, kind: 'chat' });
           void pmRef.current?.requestProposal(text);
+        }}
+        onCallMeeting={(reason) => {
+          appendSystemMessage(`Host called a meeting: "${reason}"`);
+          startMeeting(reason, []);
+        }}
+        onEndSession={() => {
+          appendSystemMessage('Host ended the session.');
+          void endSession();
         }}
         onQuit={handleQuit}
       />
