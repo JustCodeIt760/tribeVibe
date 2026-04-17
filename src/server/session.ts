@@ -32,11 +32,34 @@ export class HostSession {
     return this.participants.size < MAX_PARTICIPANTS;
   }
 
-  addPeer(displayName: string): Participant {
+  /**
+   * Find a disconnected peer matching this display name. Used for reconnect.
+   */
+  findDisconnectedByName(displayName: string): Participant | null {
+    for (const p of this.participants.values()) {
+      if (!p.isHost && !p.connected && p.name === displayName) return p;
+    }
+    return null;
+  }
+
+  /**
+   * Add a new peer OR restore a disconnected one with the same name.
+   * Returns { participant, isReconnect }.
+   */
+  addOrRestorePeer(displayName: string): { participant: Participant; isReconnect: boolean } {
+    const existing = this.findDisconnectedByName(displayName);
+    if (existing) {
+      existing.connected = true;
+      existing.lastSeen = Date.now();
+      return { participant: existing, isReconnect: true };
+    }
+
     if (!this.canAcceptNewPeer()) {
       throw new Error('Session is full');
     }
-    const id = `peer-${this.participants.size}`;
+    // Use a monotonic id so re-adds (not restores) don't collide
+    const nextIdx = Array.from(this.participants.values()).filter((p) => !p.isHost).length;
+    const id = `peer-${nextIdx + 1}`;
     const participant: Participant = {
       id,
       name: displayName,
@@ -48,7 +71,12 @@ export class HostSession {
       lastSeen: Date.now(),
     };
     this.participants.set(id, participant);
-    return participant;
+    return { participant, isReconnect: false };
+  }
+
+  /** Deprecated — kept for backwards compat; prefer addOrRestorePeer. */
+  addPeer(displayName: string): Participant {
+    return this.addOrRestorePeer(displayName).participant;
   }
 
   markDisconnected(id: string): void {

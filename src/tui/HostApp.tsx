@@ -164,6 +164,27 @@ export function HostApp({
           appendSystemMessage(`${name} joined the session.`);
         });
 
+        srv.on('peer-reconnected', (id, name) => {
+          appendSystemMessage(`${name} reconnected — restoring their role.`);
+          // Re-send the assignment + scaffold state so their UI rehydrates.
+          const a = roleAssignmentsRef.current[id];
+          if (a) {
+            srv.sendTo(id, makeMessage('role-assignment', 'host', id, {
+              assignments: [{ participantId: id, role: a.role, scope: a.scope }],
+            }));
+            srv.sendTo(id, makeMessage('scaffold-ready', 'host', id, {
+              rootDir: projectName,
+              summary: `Initial scaffold: src/{${Object.values(roleAssignmentsRef.current).map((v) => v.role).join(',')}}`,
+              branches: ['main'],
+            }));
+          }
+          // Also nudge current phase so their UI routes correctly.
+          srv.sendTo(id, makeMessage('phase-change', 'host', id, {
+            phase: srv.session.phase,
+            reason: 'reconnect',
+          }));
+        });
+
         srv.on('peer-left', (id) => {
           appendSystemMessage(`${id} disconnected.`);
         });

@@ -13,6 +13,7 @@ import type {
   SessionPhase,
 } from '../shared/protocol.js';
 import { HostSession } from './session.js';
+import type { Participant } from '../shared/types.js';
 
 export interface TribeVibeServerOptions {
   port: number;
@@ -69,14 +70,27 @@ export class TribeVibeServer extends EventEmitter {
       }
 
       if (msg.type === 'hello') {
-        if (!this.session.canAcceptNewPeer()) {
-          this.sendRaw(ws, makeMessage('goodbye', 'host', 'all', { reason: 'Session full' }));
+        const { displayName } = msg.payload as HelloPayload;
+
+        // Try to restore a disconnected peer with the same display name.
+        let result: { participant: Participant; isReconnect: boolean };
+        try {
+          result = this.session.addOrRestorePeer(displayName);
+        } catch (err) {
+          this.sendRaw(ws, makeMessage('goodbye', 'host', 'all', {
+            reason: err instanceof Error ? err.message : 'Could not join',
+          }));
           ws.close();
           return;
         }
-        const { displayName } = msg.payload as HelloPayload;
-        const p = this.session.addPeer(displayName);
+        const { participant: p, isReconnect } = result;
+
         participantId = p.id;
+        // If it's a reconnect, close any stale socket for this id first
+        const stale = this.peerSockets.get(p.id);
+        if (stale && stale !== ws) {
+          try { stale.close(); } catch { /* noop */ }
+        }
         this.peerSockets.set(p.id, ws);
 
         this.sendRaw(
@@ -89,7 +103,11 @@ export class TribeVibeServer extends EventEmitter {
         );
 
         this.broadcastLobby();
-        this.emit('peer-joined', p.id, p.name);
+        if (isReconnect) {
+          this.emit('peer-reconnected', p.id, p.name);
+        } else {
+          this.emit('peer-joined', p.id, p.name);
+        }
         return;
       }
 

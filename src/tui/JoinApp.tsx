@@ -34,6 +34,7 @@ import { makeMessage } from '../shared/protocol.js';
 import { TribeVibeClient } from '../client/ws-client.js';
 import { decodeInviteCode } from '../crypto/invite-code.js';
 import { PeerAgent } from '../agent/spawn.js';
+import { loadPeerState, savePeerState, type PeerState } from '../client/peer-state.js';
 import { peerAgentSystemPrompt } from '../agent/system-prompt.js';
 import { clonePeerWorkdir, autoCommitPush } from '../git/sync.js';
 import { ErrorBanner } from './ErrorBanner.js';
@@ -85,6 +86,7 @@ export function JoinApp({
   const myIdRef = useRef<string>('');
   const workdirRef = useRef<string>('');
   const branchRef = useRef<string>('main');
+  const peerStateRef = useRef<PeerState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +95,23 @@ export function JoinApp({
       try {
         const payload = decodeInviteCode(inviteCode);
         setStatus(`Connecting to ${payload.url}...`);
+
+        // Load any prior peer state (displayName, seed) pair — used to
+        // resume the Claude agent session across reconnects.
+        const prior = loadPeerState(displayName, payload.seed);
+        peerStateRef.current = prior;
+        if (prior.agentSessionId) {
+          appendChat({
+            fromName: 'system',
+            text: `Resuming prior session (agent ${prior.agentSessionId.slice(0, 8)}…)`,
+            kind: 'system',
+          });
+          if (prior.role) {
+            setMyRole(prior.role);
+            setMyScope(prior.scope);
+            branchRef.current = `role/${prior.role.toLowerCase().replace(/\s+/g, '-')}`;
+          }
+        }
 
         const c = new TribeVibeClient({
           url: payload.url,
@@ -189,6 +208,12 @@ export function JoinApp({
             text: `Assigned role: ${mine.role} (scope: ${mine.scope.join(', ')})`,
             kind: 'system',
           });
+          // Persist role + scope so reconnects restore them
+          if (peerStateRef.current) {
+            peerStateRef.current.role = mine.role;
+            peerStateRef.current.scope = mine.scope;
+            savePeerState(peerStateRef.current);
+          }
           // If workdir is already cloned (role-assignment arrived after
           // scaffold-ready), switch to the correct branch.
           if (workdirRef.current && prevBranch !== newBranch) {
@@ -334,6 +359,7 @@ export function JoinApp({
     const agent = new PeerAgent({
       systemPrompt,
       cwd: workdirRef.current || process.cwd(),
+      resumeSessionId: peerStateRef.current?.agentSessionId ?? undefined,
       onUpdate: (update) => {
         const c = clientRef.current;
         if (!c) return;
@@ -347,6 +373,13 @@ export function JoinApp({
 
     agent.on('assistant-text', (text: string) => {
       setAgentOutput((prev) => [...prev, text]);
+    });
+    agent.on('turn-complete', () => {
+      // Persist the latest agent sessionId after each completed turn
+      if (peerStateRef.current && agent.currentSessionId) {
+        peerStateRef.current.agentSessionId = agent.currentSessionId;
+        savePeerState(peerStateRef.current);
+      }
     });
     agent.on('error', (e: string) => {
       setAgentOutput((prev) => [...prev, `[agent error] ${e}`]);
