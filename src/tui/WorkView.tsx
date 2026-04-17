@@ -14,6 +14,7 @@ export interface WorkViewProps {
   notifications: string[];          // PM messages / cross-role pings
   lastPMUpdate?: number | null;
   onSendToAgent: (text: string) => void;
+  onCrossRoleRequest?: (targetRole: string, text: string) => void;
   onQuit: () => void;
 }
 
@@ -26,6 +27,20 @@ export function WorkView(props: WorkViewProps): React.ReactElement {
     if (trimmed === '/quit' || trimmed === '/q') {
       props.onQuit();
       return;
+    }
+    // /ask <role> <text> — route through PM to the target role's peer
+    if (trimmed.startsWith('/ask ') && props.onCrossRoleRequest) {
+      const rest = trimmed.slice(5).trim();
+      const spaceIdx = rest.indexOf(' ');
+      if (spaceIdx > 0) {
+        const targetRole = rest.slice(0, spaceIdx).toLowerCase();
+        const body = rest.slice(spaceIdx + 1).trim();
+        if (body) {
+          props.onCrossRoleRequest(targetRole, body);
+          setInput('');
+          return;
+        }
+      }
     }
     props.onSendToAgent(trimmed);
     setInput('');
@@ -78,7 +93,7 @@ export function WorkView(props: WorkViewProps): React.ReactElement {
           value={input}
           onChange={setInput}
           onSubmit={handleSubmit}
-          placeholder="Ask your agent to do something. /quit to exit."
+          placeholder="Ask agent · /ask <role> <request> · /quit"
         />
       </Box>
     </Box>

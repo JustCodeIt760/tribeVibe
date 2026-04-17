@@ -19,6 +19,7 @@ import type {
   MeetingActivePayload,
   FloorAssignPayload,
   MeetingDecisionPayload,
+  CrossRoleRequestPayload,
   MeetingDismissPayload,
   PmBroadcastPayload,
   PmTargetedPayload,
@@ -227,6 +228,23 @@ export function JoinApp({
         }
         break;
       }
+      case 'cross-role-request': {
+        const p = msg.payload as CrossRoleRequestPayload;
+        // Host routes to us only if we're the target role
+        if (p.toId === myIdRef.current) {
+          setNotifications((prev) => [
+            ...prev,
+            `(request) ${p.title} — ${p.body}`,
+          ]);
+          appendChat({
+            fromName: 'system',
+            text: `Cross-role request: ${p.title} — ${p.body}`,
+            kind: 'system',
+          });
+          setLastPMUpdate(Date.now());
+        }
+        break;
+      }
       case 'meeting-start': {
         const p = msg.payload as MeetingStartPayload;
         setMeetingReason(p.reason);
@@ -378,6 +396,30 @@ export function JoinApp({
     })();
   }
 
+  function sendCrossRoleRequest(targetRole: string, text: string): void {
+    const c = clientRef.current;
+    if (!c) return;
+    const requestId = crypto.randomUUID().slice(0, 8);
+    c.send(
+      makeMessage('cross-role-request', myIdRef.current, 'host', {
+        requestId,
+        fromId: myIdRef.current,
+        toId: targetRole, // host resolves role → participant id
+        title: `Request from ${displayName} (${myRole ?? 'peer'})`,
+        body: text,
+      })
+    );
+    setNotifications((prev) => [
+      ...prev,
+      `(sent) → ${targetRole}: ${text.slice(0, 80)}`,
+    ]);
+    appendChat({
+      fromName: 'system',
+      text: `You asked ${targetRole} for: ${text}`,
+      kind: 'system',
+    });
+  }
+
   function sendButtIn(text: string): void {
     const c = clientRef.current;
     if (!c) return;
@@ -460,6 +502,7 @@ export function JoinApp({
         isHost={false}
         onSend={sendChat}
         onVote={sendVote}
+        onPmPrompt={(text) => sendChat(`[asking PM] ${text}`)}
         onQuit={handleQuit}
       />
     );
@@ -477,6 +520,7 @@ export function JoinApp({
         notifications={notifications}
         lastPMUpdate={lastPMUpdate}
         onSendToAgent={sendToAgent}
+        onCrossRoleRequest={(targetRole, text) => sendCrossRoleRequest(targetRole, text)}
         onQuit={handleQuit}
       />
     );

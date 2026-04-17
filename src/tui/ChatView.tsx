@@ -32,6 +32,8 @@ export interface ChatViewProps {
   onSend: (text: string) => void;
   onVote?: (value: 'yes' | 'no' | 'abstain') => void;
   onStartWork?: () => void;
+  onScaffold?: () => void;         // host: skip PM, scaffold manually
+  onPmPrompt?: (text: string) => void; // manually ask PM something
   onQuit: () => void;
 }
 
@@ -47,11 +49,16 @@ export function ChatView(props: ChatViewProps): React.ReactElement {
     if (!trimmed) return;
 
     if (trimmed.startsWith('/')) {
-      const cmd = trimmed.slice(1).toLowerCase();
+      const parts = trimmed.slice(1).split(/\s+/);
+      const cmd = parts[0]!.toLowerCase();
+      const rest = trimmed.slice(1 + parts[0]!.length).trim();
+
       if ((cmd === 'yes' || cmd === 'y') && props.onVote) { props.onVote('yes'); setInput(''); return; }
       if ((cmd === 'no' || cmd === 'n') && props.onVote) { props.onVote('no'); setInput(''); return; }
       if ((cmd === 'abstain' || cmd === 'a') && props.onVote) { props.onVote('abstain'); setInput(''); return; }
       if (cmd === 'start' && props.isHost && props.onStartWork) { props.onStartWork(); setInput(''); return; }
+      if (cmd === 'scaffold' && props.isHost && props.onScaffold) { props.onScaffold(); setInput(''); return; }
+      if (cmd === 'pm' && props.onPmPrompt) { props.onPmPrompt(rest || 'Please make a proposal or respond.'); setInput(''); return; }
       if (cmd === 'quit' || cmd === 'q') { props.onQuit(); return; }
     }
 
@@ -112,9 +119,9 @@ export function ChatView(props: ChatViewProps): React.ReactElement {
           placeholder={
             props.isHost
               ? props.canStartWork
-                ? '/start to begin work · type to chat'
-                : 'type to chat · /quit to exit'
-              : 'type to chat · /quit to exit'
+                ? '/start work · /pm <q> · type to chat'
+                : '/scaffold · /pm <q> · type to chat'
+              : 'type to chat · /pm <q> · /quit to exit'
           }
         />
       </Box>

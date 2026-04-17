@@ -183,17 +183,26 @@ function extractText(content: unknown): string {
 }
 
 function parseActions(text: string): PMAction[] {
-  // Look for a ```json {... "actions": [...] } ``` block
+  const trimmed = text.trim();
+  if (!trimmed) return [{ kind: 'silent' }];
+
+  // Try to find a ```json {... "actions": [...] } ``` block
   const fenceMatch = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const payload = fenceMatch ? fenceMatch[1] : text;
-  try {
-    const parsed = JSON.parse(payload) as { actions?: PMAction[] };
-    if (Array.isArray(parsed.actions)) return parsed.actions;
-  } catch {
-    // fallback: treat entire text as a chat message
-    if (text.trim().length > 0) {
-      return [{ kind: 'chat', text: text.trim() }];
-    }
+  if (fenceMatch) {
+    try {
+      const parsed = JSON.parse(fenceMatch[1]) as { actions?: PMAction[] };
+      if (Array.isArray(parsed.actions) && parsed.actions.length > 0) {
+        return parsed.actions;
+      }
+    } catch { /* fall through */ }
+
+    // Fenced but not structured — strip the fence, emit surrounding text as chat
+    const stripped = text.replace(fenceMatch[0], '').trim();
+    if (stripped) return [{ kind: 'chat', text: stripped }];
   }
-  return [{ kind: 'silent' }];
+
+  // No fence — treat whole response as chat (graceful degradation so the
+  // user always sees *something* from the PM, even if the model didn't
+  // produce structured output).
+  return [{ kind: 'chat', text: trimmed }];
 }

@@ -357,6 +357,42 @@ export function HostApp({
         pmRef.current?.observe({ fromName: who?.name ?? msg.from, text: p.text, kind: 'butt-in' }, 'soft');
         break;
       }
+      case 'cross-role-request': {
+        // Peer sent a request addressed to a role. Resolve role → participant id.
+        const p = msg.payload as { requestId: string; fromId: string; toId: string; title: string; body: string };
+        const targetRole = p.toId.toLowerCase();
+        const targetEntry = Object.entries(roleAssignmentsRef.current).find(
+          ([, v]) => v.role.toLowerCase() === targetRole
+        );
+
+        if (!targetEntry) {
+          // No one with that role — tell the requester
+          srv.sendTo(msg.from, makeMessage('pm-targeted', 'host', msg.from, {
+            targetId: msg.from,
+            title: 'Request routing failed',
+            body: `No peer has role "${targetRole}". Available roles: ${
+              Object.values(roleAssignmentsRef.current).map((v) => v.role).join(', ') || '(none assigned)'
+            }`,
+          }));
+          break;
+        }
+        const [targetId] = targetEntry;
+        // Rewrite toId to actual participant id before forwarding
+        const forwarded = makeMessage('cross-role-request', 'host', targetId, {
+          ...p,
+          toId: targetId,
+        });
+        srv.sendTo(targetId, forwarded);
+        appendSystemMessage(
+          `Routed cross-role request from ${p.fromId} → ${targetRole} (${targetId}): ${p.body.slice(0, 60)}`
+        );
+        pmRef.current?.observe({
+          fromName: p.fromId,
+          text: `cross-role request to ${targetRole}: ${p.body}`,
+          kind: 'cross-role-request',
+        }, 'soft');
+        break;
+      }
     }
   }
 
@@ -676,6 +712,14 @@ export function HostApp({
           pmRef.current?.observe({ fromName: hostName, text, kind: 'chat' });
         }}
         onStartWork={handleStartWork}
+        onScaffold={() => {
+          appendSystemMessage('Host triggered /scaffold manually.');
+          void finalizeScaffold();
+        }}
+        onPmPrompt={(text) => {
+          appendChat({ fromName: hostName, text: `/pm ${text}`, kind: 'chat' });
+          void pmRef.current?.requestProposal(text);
+        }}
         onQuit={handleQuit}
       />
     );
@@ -693,6 +737,10 @@ export function HostApp({
           broadcastChat(hostName, text);
           appendChat({ fromName: hostName, text, kind: 'chat' });
           pmRef.current?.observe({ fromName: hostName, text, kind: 'chat' });
+        }}
+        onPmPrompt={(text) => {
+          appendChat({ fromName: hostName, text: `/pm ${text}`, kind: 'chat' });
+          void pmRef.current?.requestProposal(text);
         }}
         onQuit={handleQuit}
       />
