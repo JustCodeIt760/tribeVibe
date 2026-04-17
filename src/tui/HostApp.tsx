@@ -87,6 +87,7 @@ export function HostApp({
   const [meetingTranscript, setMeetingTranscript] = useState<MeetingTranscriptLine[]>([]);
   const [lastPMUpdate, setLastPMUpdate] = useState<number | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
+  const [pendingMeeting, setPendingMeeting] = useState<{ reason: string; relevantNames: string[] } | null>(null);
 
   const pushError = (msg: string) => setErrors((prev) => [...prev, msg]);
 
@@ -100,6 +101,10 @@ export function HostApp({
   const bareRepoRef = useRef<string>('');
   const workRepoRef = useRef<string>('');
   const voteRef = useRef<ActiveVote | null>(null);
+  const pendingMeetingRef = useRef<{ reason: string; relevantNames: string[] } | null>(null);
+  const meetingDelayTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const overlapWatcherRef = useRef<NodeJS.Timeout | null>(null);
+  const srvPhaseRef = useRef<string>('lobby');
   const roleAssignmentsRef = useRef<Record<string, { role: string; scope: string[] }>>({});
 
   // ---------- Boot sequence ----------
@@ -340,7 +345,16 @@ export function HostApp({
         break;
       case 'recommend-meeting':
         if (phase === 'working') {
-          startMeeting(action.reason ?? 'sync', action.relevantNames ?? []);
+          const reason = action.reason ?? 'Sync requested by PM';
+          const names = action.relevantNames ?? [];
+          // Don't auto-start — ask host to approve first (spec §6.1).
+          pendingMeetingRef.current = { reason, relevantNames: names };
+          setPendingMeeting({ reason, relevantNames: names });
+          appendChat({
+            fromName: 'PM',
+            text: `Meeting recommendation: ${reason}. Reply /approve to start · /dismiss to skip · /delay <seconds> to postpone.`,
+            kind: 'pm-broadcast',
+          });
         }
         break;
       case 'silent':
@@ -547,6 +561,33 @@ export function HostApp({
     srv.emitPhase('working');
     setPhase('working');
     appendSystemMessage('Work phase started. Peers can now chat with their agents.');
+    startOverlapWatcher();
+  }
+
+  /**
+   * Periodically check for file overlaps between roles. When a new overlap
+   * appears, nudge the PM with a hard observation — this primes the
+   * debouncer to consider a meeting recommendation.
+   */
+  function startOverlapWatcher(): void {
+    if (overlapWatcherRef.current) return;
+    const seen = new Set<string>();
+    overlapWatcherRef.current = setInterval(() => {
+      const pm = pmRef.current;
+      if (!pm) return;
+      if (phase !== 'working' && srvPhaseRef.current !== 'working') return;
+      const overlaps = pm.status.detectFileOverlaps();
+      for (const o of overlaps) {
+        const key = `${o.file}:${o.participantIds.sort().join(',')}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pm.observe({
+          fromName: 'system',
+          text: `File overlap detected: ${o.file} touched by ${o.participantIds.join(', ')}. Consider recommending a sync meeting if this represents a conflict.`,
+          kind: 'overlap-detected',
+        }, 'hard');
+      }
+    }, 30_000);
   }
 
   // ---------- Meeting ----------
@@ -750,6 +791,8 @@ export function HostApp({
   }
 
   async function shutdown(): Promise<void> {
+    if (overlapWatcherRef.current) { clearInterval(overlapWatcherRef.current); overlapWatcherRef.current = null; }
+    if (meetingDelayTimerRef.current) { clearTimeout(meetingDelayTimerRef.current); meetingDelayTimerRef.current = null; }
     await serverRef.current?.close().catch(() => {});
     await tunnelRef.current?.close().catch(() => {});
     await gitTunnelRef.current?.close().catch(() => {});
@@ -846,6 +889,42 @@ export function HostApp({
         messages={messages}
         isHost
         onSend={(text) => {
+          // Host approval shortcuts for PM meeting recommendations
+          const trimmed = text.trim();
+          if (trimmed === '/approve' && pendingMeetingRef.current) {
+            const pm = pendingMeetingRef.current;
+            appendSystemMessage(`Host approved meeting: ${pm.reason}`);
+            pendingMeetingRef.current = null;
+            setPendingMeeting(null);
+            startMeeting(pm.reason, pm.relevantNames);
+            return;
+          }
+          if (trimmed === '/dismiss' && pendingMeetingRef.current) {
+            appendSystemMessage(`Host dismissed meeting: ${pendingMeetingRef.current.reason}`);
+            pendingMeetingRef.current = null;
+            setPendingMeeting(null);
+            return;
+          }
+          if (trimmed.startsWith('/delay ') && pendingMeetingRef.current) {
+            const secs = parseInt(trimmed.slice(7).trim(), 10);
+            if (!Number.isNaN(secs) && secs > 0) {
+              if (meetingDelayTimerRef.current) clearTimeout(meetingDelayTimerRef.current);
+              const pm = pendingMeetingRef.current;
+              appendSystemMessage(`Host delayed meeting by ${secs}s: ${pm.reason}`);
+              meetingDelayTimerRef.current = setTimeout(() => {
+                if (pendingMeetingRef.current === pm) {
+                  appendSystemMessage('Delay expired — re-surfacing meeting.');
+                  appendChat({
+                    fromName: 'PM',
+                    text: `(delay ended) ${pm.reason}. Reply /approve · /dismiss · /delay <secs>.`,
+                    kind: 'pm-broadcast',
+                  });
+                }
+              }, secs * 1000);
+              return;
+            }
+          }
+
           broadcastChat(hostName, text);
           appendChat({ fromName: hostName, text, kind: 'chat' });
           pmRef.current?.observe({ fromName: hostName, text, kind: 'chat' });
