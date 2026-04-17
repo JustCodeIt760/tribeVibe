@@ -30,6 +30,7 @@ export interface MeetingViewProps {
   onButtIn: (text: string) => void;
   onAdvance?: () => void;   // host-only: move to next item
   onDismiss?: () => void;   // host-only: end meeting
+  onDecide?: (decision: string, reasoning: string) => void; // host-only: record + broadcast
   onQuit: () => void;
   isHost: boolean;
 }
@@ -50,6 +51,21 @@ export function MeetingView(props: MeetingViewProps): React.ReactElement {
   function handleSubmit(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
+
+    // Host can record a decision at any time with /decide <text>
+    if (props.isHost && props.onDecide && trimmed.startsWith('/decide ')) {
+      const body = trimmed.slice(8).trim();
+      if (body) {
+        // Use first sentence as decision, rest as reasoning (if any)
+        const splitIdx = body.indexOf(' — ');
+        const decision = splitIdx > 0 ? body.slice(0, splitIdx) : body;
+        const reasoning = splitIdx > 0 ? body.slice(splitIdx + 3) : '';
+        props.onDecide(decision, reasoning);
+      }
+      setInput('');
+      return;
+    }
+
     if (buttInMode) {
       props.onButtIn(trimmed);
       setButtInMode(false);
@@ -141,7 +157,7 @@ export function MeetingView(props: MeetingViewProps): React.ReactElement {
         ) : (
           <Text dimColor>
             Press <Text color="green">b</Text> to butt in
-            {props.isHost ? ' · n=next item · d=dismiss' : ''}
+            {props.isHost ? ' · n=next · d=dismiss · /decide <text>' : ''}
             {' · esc to quit'}
           </Text>
         )}

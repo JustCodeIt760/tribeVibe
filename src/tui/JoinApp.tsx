@@ -77,6 +77,7 @@ export function JoinApp({
   const [meetingFloor, setMeetingFloor] = useState<string[]>([]);
   const [meetingReason, setMeetingReason] = useState<string>('');
   const [meetingTranscript, setMeetingTranscript] = useState<MeetingTranscriptLine[]>([]);
+  const [recentDecisions, setRecentDecisions] = useState<MeetingDecisionPayload[]>([]);
   const [lastPMUpdate, setLastPMUpdate] = useState<number | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const pushError = (m: string) => setErrors((prev) => [...prev, m]);
@@ -307,6 +308,18 @@ export function JoinApp({
           ...prev,
           { fromName: 'PM', text: `Decision: ${p.decision}`, kind: 'decision' },
         ]);
+        // Stash for agent context injection on next spawn/turn
+        setRecentDecisions((prev) => [...prev, p]);
+        // Also surface in the notification panel so it's visible in work view
+        setNotifications((prev) => [
+          ...prev,
+          `(decision) ${p.decision}${p.reasoning ? ` — ${p.reasoning}` : ''}`,
+        ]);
+        appendChat({
+          fromName: 'PM',
+          text: `Decision recorded: ${p.decision}${p.reasoning ? ` — ${p.reasoning}` : ''}`,
+          kind: 'pm-broadcast',
+        });
         break;
       }
       case 'meeting-dismiss': {
@@ -346,6 +359,16 @@ export function JoinApp({
   function ensureAgent(): PeerAgent {
     if (agentRef.current) return agentRef.current;
 
+    // Build team context including any recent meeting decisions so the
+    // agent adapts to team rulings without waiting for a new session.
+    const decisionsText = recentDecisions.length > 0
+      ? '\n\nRecent team decisions:\n' +
+        recentDecisions
+          .slice(-10)
+          .map((d) => `- ${d.decision}${d.reasoning ? ` (why: ${d.reasoning})` : ''}`)
+          .join('\n')
+      : '';
+
     const systemPrompt = peerAgentSystemPrompt({
       participantName: displayName,
       role: myRole ?? 'developer',
@@ -353,7 +376,7 @@ export function JoinApp({
       projectName: projectName || 'project',
       scaffoldSummary,
       sharedContracts: '',
-      teamContext: `Team: ${participants.map((p) => p.name).join(', ')}`,
+      teamContext: `Team: ${participants.map((p) => p.name).join(', ')}${decisionsText}`,
     });
 
     const agent = new PeerAgent({

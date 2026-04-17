@@ -652,6 +652,39 @@ export function HostApp({
     setMeetingTranscript([]);
   }
 
+  function recordMeetingDecision(decision: string, reasoning: string): void {
+    const srv = serverRef.current;
+    if (!srv) return;
+
+    const currentItem = meetingItems[meetingIdx];
+    const itemId = currentItem?.id ?? 'ad-hoc';
+
+    // Persist in tracker so it shows up in SESSION-SUMMARY + memories
+    pmRef.current?.status.recordDecision({
+      timestamp: Date.now(),
+      description: decision,
+      reasoning,
+      itemId,
+    });
+
+    // Broadcast to peers — they'll render it in the meeting transcript
+    // AND store it locally to inject into their agent system prompt.
+    srv.broadcast(makeMessage('meeting-decision', 'host', 'all', {
+      itemId, decision, reasoning,
+    }));
+
+    // Reflect in host's own transcript
+    setMeetingTranscript((prev) => [
+      ...prev,
+      {
+        fromName: 'PM',
+        text: `Decision: ${decision}${reasoning ? ` — ${reasoning}` : ''}`,
+        kind: 'decision',
+      },
+    ]);
+    setLastPMUpdate(Date.now());
+  }
+
   // ---------- End session ----------
   async function endSession(): Promise<void> {
     setPhase('ending');
@@ -863,6 +896,7 @@ export function HostApp({
         }}
         onAdvance={advanceMeeting}
         onDismiss={dismissMeeting}
+        onDecide={(decision, reasoning) => recordMeetingDecision(decision, reasoning)}
         onQuit={handleQuit}
       />
     );
